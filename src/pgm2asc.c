@@ -1452,309 +1452,294 @@ intcompare (const void *vr, const void *vs)
  *   3th round if something not fit, mono=0
  * 
  */
-void measure_pitch( job_t *job ){     /* word spacing */
-  int numdists=0, spc=0,              /* number of stored distances */
-      pitch_p=2, pdist, pdists[1024], /* proportional distances */
-      pitch_m=10, /* monospaced em width */
-      monospaced=1, l1, char_width_min=1023, char_width_max=0,
-      mono_em_min=0,    // maximum monospace char width + 1   2010-09-25
-      mono_em_max=2047, // minimum distance left side of two chars
-      d1l, d1r; // left-left and right-right distance of 2 chars
-  int d1, d2; // temporary vars, d1l + d1r sorted
-  struct box *box2, *pre1=NULL, *pre2=NULL;
+void measure_pitch(job_t *job) {     /* word spacing */
+  int numdists = 0, spc = 0;        /* number of stored distances and space width */
+  int pitch_p = 2;                  /* proportional font pitch */
+  int pdists[1024];                 /* array for proportional distances, fixed size 1024 */
+  int pitch_m = 10;                 /* monospaced em width */
+  int monospaced = 1;               /* flag for monospaced font detection */
+  int l1, char_width_min = 1023, char_width_max = 0; /* line index and char width bounds */
+  int mono_em_min = 0;              /* maximum monospace char width + 1 */
+  int mono_em_max = 2047;           /* minimum distance between left sides of two chars */
+  int d1l, d1r;                    /* left-left and right-right distance of 2 chars */
+  int d1, d2;                       /* temporary vars for sorted distances */
+  struct box *box2, *pre1 = NULL, *pre2 = NULL; /* current and previous boxes */
 
-  if(job->cfg.verbose){ fprintf(stderr,"# check for word pitch"); }
-  for (l1=0; l1<job->res.lines.num; l1++)
-  { /* 0 means all lines */
-    if(job->cfg.verbose){ fprintf(stderr,"\n#  line %2d\n# ...",l1); }
-    numdists = 0;  /* clear distance lists */
-    monospaced=1; mono_em_min=0;  mono_em_max=2047; // reset, 2010-09-28
-    char_width_min=1023; char_width_max=0; // reset, 2010-09-28
+  /* Check for verbose mode and print initial message */
+  if (job->cfg.verbose) { fprintf(stderr, "# check for word pitch"); }
+
+  /* Iterate through each line */
+  for (l1 = 0; l1 < job->res.lines.num; l1++) {
+    if (job->cfg.verbose) { fprintf(stderr, "\n#  line %2d\n# ...", l1); }
+    numdists = 0;  /* clear distance counter */
+    monospaced = 1; mono_em_min = 0; mono_em_max = 2047; /* reset for each line */
+    char_width_min = 1023; char_width_max = 0; /* reset char width bounds */
+
+    /* Iterate through each box in the boxlist */
     for_each_data(&(job->res.boxlist)) {
       box2 = (struct box *)list_get_current(&(job->res.boxlist));
-      if (l1>0 && box2->line!=l1) continue; /* ignore other lines */
-      /* ignore dots and pictures (min. font is 4x6) */
-      if (box2->y1 - box2->y0 + 1 < 4 || box2->c==PICTURE) pre2=pre1=NULL;
-      if (!pre1) { pre1=box2; continue; } /* we need a predecessor */
-      if (pre1 && pre1->line != box2->line) { pre1=box2; continue; } /* 201809 */
-      /* use gap for proportional fonts */
-      pdist = box2->x0 - pre1->x1 - 1; /* do not add 1, subtract 1 ! */
-      if (pdist<0) { // new line
-        pre2=NULL; pre1=box2; continue; }
-      if ((box2->x1 - box2->x0 + 1)
-       >2*(box2->y1 - box2->y0 + 1)) { // skip long object
-        continue; }
-      if ((pre1->x1 - pre1->x0 + 1)
-       >2*(pre1->y1 - pre1->y0 + 1)) { // skip long object
-        pre1=box2; continue; }
-      // JS-2010-09 sample spaces20100910.jpg 7 chars, fix bad auto space
+      if (l1 > 0 && box2->line != l1) continue; /* skip boxes not in current line */
+      
+      /* Ignore dots and pictures (min font size 4x6) */
+      if (box2->y1 - box2->y0 + 1 < 4 || box2->c == PICTURE) {
+        pre2 = pre1 = NULL;
+        continue;
+      }
+      if (!pre1) { pre1 = box2; continue; } /* set first box as predecessor */
+      if (pre1 && pre1->line != box2->line) { pre1 = box2; continue; } /* line change */
+
+      /* Calculate gap for proportional fonts */
+      int pdist = box2->x0 - pre1->x1 - 1; /* distance between boxes */
+      if (pdist < 0) { /* new line detected */
+        pre2 = NULL; pre1 = box2; continue;
+      }
+      
+      /* Skip long objects (width > 2 * height) */
+      if ((box2->x1 - box2->x0 + 1) > 2 * (box2->y1 - box2->y0 + 1)) continue;
+      if ((pre1->x1 - pre1->x0 + 1) > 2 * (pre1->y1 - pre1->y0 + 1)) {
+        pre1 = box2; continue;
+      }
+
+      /* Update minimum and maximum character widths */
       if (char_width_min > box2->x1 - box2->x0 + 1)
-          char_width_min = box2->x1 - box2->x0 + 1;
-      if (box2->x1 - box2->x0 < 4*(pre1->x1 - pre1->x0)) // ~ big lines
-      if (char_width_max < box2->x1 - box2->x0 + 1)
+        char_width_min = box2->x1 - box2->x0 + 1;
+      if (box2->x1 - box2->x0 < 4 * (pre1->x1 - pre1->x0))
+        if (char_width_max < box2->x1 - box2->x0 + 1)
           char_width_max = box2->x1 - box2->x0 + 1;
-      // may cause problems if "_" is of width em (not em-1 like mwMW etc.)
+      
+      /* Update minimum monospaced width */
       if (mono_em_min < char_width_max + 1)
-          mono_em_min = char_width_max + 1; // minimum monospaced width
+        mono_em_min = char_width_max + 1;
 
-      // will fail on monospaced fonts where chars are not centered
-      if (pre1) { // 2010-09-28
-        d1l = box2->x0 - pre1->x0; // left to left distance
-        d1r = box2->x1 - pre1->x1; // right to right distance
-        if (d1l > d1r) { d1=d1r; d2=d1l; } // thinner char on the right
-        else           { d1=d1l; d2=d1r; } // thicker char on the right
-        /* d1 < 2*width && d2 < 2*width, may fail for "IIIM" d2<2*max OK */
-        if (d1>0 && d1 < 2*char_width_max && d2 < 2*mono_em_max) {
-          if (mono_em_min<d1-1) mono_em_min = d1; }
-        if (d1>0) {
-          if (mono_em_max>d2+2) mono_em_max = d2; } // not best, shifted ()
-        // 2010-10-06 examples/ocr-b add -1 +2, bad for "()"        
-#if 1
-        if ((48 & job->cfg.verbose) == 48)
-        if (monospaced && l1)  // debugging until monospaced=0
-          fprintf(stderr," L%02d DBG1 x %3d %+4d %3d %+4d  d %3d %3d"
-            "  em %2d %2d  ex %2d\n# ...",
-            l1, pre1->x0, pre1->x1-pre1->x0+1, 
-                box2->x0, box2->x1-box2->x0+1, d1, d2,
-            mono_em_min, mono_em_max, char_width_max);
-#endif
+      /* Calculate distances for monospaced font detection */
+      if (pre1) {
+        d1l = box2->x0 - pre1->x0; /* left to left distance */
+        d1r = box2->x1 - pre1->x1; /* right to right distance */
+        if (d1l > d1r) { d1 = d1r; d2 = d1l; } /* thinner char on the right */
+        else { d1 = d1l; d2 = d1r; } /* thicker char on the right */
+        
+        /* Update mono_em_min and mono_em_max based on distances */
+        if (d1 > 0 && d1 < 2 * char_width_max && d2 < 2 * mono_em_max) {
+          if (mono_em_min < d1 - 1) mono_em_min = d1;
+        }
+        if (d1 > 0) {
+          if (mono_em_max > d2 + 2) mono_em_max = d2;
+        }
+        
+        /* Debug output for verbose mode */
+        if ((48 & job->cfg.verbose) == 48 && monospaced && l1)
+          fprintf(stderr, " L%02d DBG1 x %3d %+4d %3d %+4d  d %3d %3d"
+                  "  em %2d %2d  ex %2d\n# ...",
+                  l1, pre1->x0, pre1->x1 - pre1->x0 + 1,
+                  box2->x0, box2->x1 - box2->x0 + 1, d1, d2,
+                  mono_em_min, mono_em_max, char_width_max);
       }
-#if 1 // needed for correct spacing of last line of tmp08/0810CSchulze_crop
+
+      /* Check distances with second predecessor (pre2) */
       if (pre2) {
-        d1l = box2->x0 - pre2->x0; // left to left distance
-        d1r = box2->x1 - pre2->x1; // right to right distance
-        if (d1l > d1r) { d1=d1r; d2=d1l; } // thinner char on the right 
-        else           { d1=d1l; d2=d1r; } // thicker char on the right        
-        if (d1>0 && d1 < 3*char_width_max && d2 < 3*mono_em_max) {
-          if (2*mono_em_min<d1) mono_em_min = (d1+1)/2; }
-        if (d1>0) {
-          if (2*mono_em_max>d2) mono_em_max = (d2+1)/2; }
-#if 1
-        if ((48 & job->cfg.verbose) == 48)
-        if (monospaced && l1)  // debugging until monospaced=0
-          fprintf(stderr," L%02d DBG2 x %3d %+4d %3d %+4d  d %3d %3d"
-            "  em %2d %2d  ex %2d\n# ...",
-            l1, pre2->x0, pre2->x1-pre2->x0+1,
-                box2->x0, box2->x1-box2->x0+1, d1, d2,
-            mono_em_min, mono_em_max, char_width_max);
-#endif
+        d1l = box2->x0 - pre2->x0; /* left to left distance */
+        d1r = box2->x1 - pre2->x1; /* right to right distance */
+        if (d1l > d1r) { d1 = d1r; d2 = d1l; } /* thinner char on the right */
+        else { d1 = d1l; d2 = d1r; } /* thicker char on the right */
+        
+        /* Update mono_em_min and mono_em_max for wider gaps */
+        if (d1 > 0 && d1 < 3 * char_width_max && d2 < 3 * mono_em_max) {
+          if (2 * mono_em_min < d1) mono_em_min = (d1 + 1) / 2;
+        }
+        if (d1 > 0) {
+          if (2 * mono_em_max > d2) mono_em_max = (d2 + 1) / 2;
+        }
+        
+        /* Debug output for verbose mode */
+        if ((48 & job->cfg.verbose) == 48 && monospaced && l1)
+          fprintf(stderr, " L%02d DBG2 x %3d %+4d %3d %+4d  d %3d %3d"
+                  "  em %2d %2d  ex %2d\n# ...",
+                  l1, pre2->x0, pre2->x1 - pre2->x0 + 1,
+                  box2->x0, box2->x1 - box2->x0 + 1, d1, d2,
+                  mono_em_min, mono_em_max, char_width_max);
       }
-#endif
 
-// the upper part does good work, we do not need this stuff ... ???
-#if 0
-      // min distance between next neighbours of pre
-      if (pre2  &&  1 < box2->x0 - pre2->x1)
-      if (mono_em_max > box2->x0 - pre2->x1)
-          mono_em_max = box2->x0 - pre2->x1;
-      // ToDo: could be a problem for " ???
-      if (pre2)
-      if (pre1->x1 - pre1->x0 >= mono_em_min) // best max mono_dx
-      if (pre1->x1 - pre1->x0 == box2->x1 - box2->x0) // best max mono_dx
-      if (mono_em_max > box2->x0 - pre1->x0)
-          mono_em_max = box2->x0 - pre1->x0;
-      /* ToDo: better take 3 instead of 2 neighbours?, smallest font 4x6 */
-      /* tmp08/gocr0801_bad5.jpg was not mono, need 2 to 3 chars */
-      /* 2010-09-27 gives precise range! 16..22 to 16..17 */
-      /* ToDo: no 2 char variant? */
-      if (pre2  &&  1 < box2->x0 - pre2->x1)
-      if (box2->x0-pre1->x1+1 < mono_em_min) // no spc between char + pre1
-      if (pre1->x0-pre2->x1+1 < mono_em_min) // no spc between pre1 + pre2
-      {
-        if (3*mono_em_min <  box2->x1 - pre2->x0)
-              mono_em_min = (box2->x1 - pre2->x0 + 2)/3;
-      }  
-#endif
-//#  tmp09/oebb_teletext_836_0001_sw.png
-//#  line 4 12 - 12  pre2 134 142           181 190
-//#                         0   8            47  56
-//#                         0    12  24  36   48                   
-      // n=2: (n-1)*min < d1 <= (n  )*max  &&  (2*n+1)*max < (2*n+2)*min
-      //      (n  )*min < d2 <= (n+1)*max  &&  (2*n+2)*max < (2*n+3)*min 
-      if (monospaced && pre1) { // check 2 chars for non mono space within
-        d1l = box2->x0 - pre1->x0; // left to left distance  (do not + 1!)
-        d1r = box2->x1 - pre1->x1; // right to right distance
-        if (d1l > d1r) { d1=d1r; d2=d1l; } // thinner char on the right
-        else           { d1=d1l; d2=d1r; } // thicker char on the right
-        if ( mono_em_max < 2*mono_em_min
-          && mono_em_min < 2*mono_em_max)  // 2018-10 valid range?
-        if ((box2->x0 - pre1->x1 <=   mono_em_max  // no space between
-//        && box2->x1 - pre1->x0 >  2*mono_em_max) // crossing 1 em border?
-          && box2->x1 - pre1->x0 >  2*mono_em_min+mono_em_min/8) // 2018-09 rnd80
-         || (box2->x0 - pre1->x1 >    mono_em_min  // space between 
-          && box2->x0 - pre1->x1 <= 2*mono_em_max-mono_em_max/16
-//        && box2->x1 - pre1->x0 >  3*mono_em_max)) { // crossing 2 em border?
-          && box2->x1 - pre1->x0 >  3*mono_em_min+mono_em_min/8)) { // 2018-09 rnd80
-          monospaced = 0; // can not be monospaced in that case 2010-09-25
-         if (job->cfg.verbose)
-           fprintf(stderr, " L%02d mono:=0  %d - %d  pre1 %d %d  %d %d y %d DBG%d\n# ...",
-            l1, mono_em_min, mono_em_max,
-            pre1->x0, pre1->x1, box2->x0, box2->x1,box2->y0,__LINE__);
+      /* Monospaced font detection with pre1 */
+      if (monospaced && pre1) {
+        d1l = box2->x0 - pre1->x0; /* left to left distance */
+        d1r = box2->x1 - pre1->x1; /* right to right distance */
+        if (d1l > d1r) { d1 = d1r; d2 = d1l; } /* thinner char on the right */
+        else { d1 = d1l; d2 = d1r; } /* thicker char on the right */
+        
+        /* Check if spacing indicates non-monospaced font */
+        if (mono_em_max < 2 * mono_em_min && mono_em_min < 2 * mono_em_max) {
+          if ((box2->x0 - pre1->x1 <= mono_em_max &&
+               box2->x1 - pre1->x0 > 2 * mono_em_min + mono_em_min / 8) ||
+              (box2->x0 - pre1->x1 > mono_em_min &&
+               box2->x0 - pre1->x1 <= 2 * mono_em_max - mono_em_max / 16 &&
+               box2->x1 - pre1->x0 > 3 * mono_em_min + mono_em_min / 8)) {
+            monospaced = 0; /* mark as non-monospaced */
+            if (job->cfg.verbose)
+              fprintf(stderr, " L%02d mono:=0  %d - %d  pre1 %d %d  %d %d y %d DBG%d\n# ...",
+                      l1, mono_em_min, mono_em_max,
+                      pre1->x0, pre1->x1, box2->x0, box2->x1, box2->y0, __LINE__);
+          }
         }
       }
-      // n=3: (n-1)*min < d1 <= (n  )*max  &&  (2*n+1)*max < (2*n+2)*min
-      //      (n  )*min < d2 <= (n+1)*max  &&  (2*n+2)*max < (2*n+3)*min 
-      if (monospaced && pre2 && (2*2+2)*mono_em_max < (2*2+3)*mono_em_min)
-      { // check 2 chars for non mono space within
-        d1l = box2->x0 - pre2->x0; // left to left distance
-        d1r = box2->x1 - pre2->x1; // right to right distance
-        if (d1l > d1r) { d1=d1r; d2=d1l; } // thinner char on the right
-        else           { d1=d1l; d2=d1r; } // thicker char on the right
-        if ((box2->x0 - pre2->x1 >    mono_em_min+mono_em_min/16 // min. 1 char between
-          && box2->x0 - pre2->x1 <= 2*mono_em_max-mono_em_max/8 // max. 2 chars 
-//        && box2->x1 - pre2->x0 >  3*mono_em_max) // crossing 2 em border?
-          && box2->x1 - pre2->x0 >  3*mono_em_min+mono_em_min/8) // 2018-09 rnd80
-       || 0*(box2->x0 - pre2->x1 >  2*mono_em_min+mono_em_min/8  // min. 2 ex between
-          && box2->x0 - pre2->x1 <= 3*mono_em_max-mono_em_max/4  // ?????? ToDo oebb
-//        && box2->x1 - pre2->x0 >  4*mono_em_max)) { // crossing 3 em border?
-          && box2->x1 - pre2->x0 >  4*mono_em_min+mono_em_min/2)) { // 2018-09 rnd80
-          monospaced = 0; // can not be monospaced in that case 2010-09-25
-         if (job->cfg.verbose)
-           fprintf(stderr, " L%02d mono:=0  %d - %d  pre2 %d %d  %d %d DBG%d\n# ...",
-            l1, mono_em_min, mono_em_max,
-            pre2->x0, pre2->x1, box2->x0, box2->x1, __LINE__);
+
+      /* Monospaced font detection with pre2 */
+      if (monospaced && pre2 && (2 * 2 + 2) * mono_em_max < (2 * 2 + 3) * mono_em_min) {
+        d1l = box2->x0 - pre2->x0; /* left to left distance */
+        d1r = box2->x1 - pre2->x1; /* right to right distance */
+        if (d1l > d1r) { d1 = d1r; d2 = d1l; } /* thinner char on the right */
+        else { d1 = d1l; d2 = d1r; } /* thicker char on the right */
+        
+        /* Check if spacing indicates non-monospaced font */
+        if ((box2->x0 - pre2->x1 > mono_em_min + mono_em_min / 16 &&
+             box2->x0 - pre2->x1 <= 2 * mono_em_max - mono_em_max / 8 &&
+             box2->x1 - pre2->x0 > 3 * mono_em_min + mono_em_min / 8) ||
+            0 * (box2->x0 - pre2->x1 > 2 * mono_em_min + mono_em_min / 8 &&
+                 box2->x0 - pre2->x1 <= 3 * mono_em_max - mono_em_max / 4 &&
+                 box2->x1 - pre2->x0 > 4 * mono_em_min + mono_em_min / 2)) {
+          monospaced = 0; /* mark as non-monospaced */
+          if (job->cfg.verbose)
+            fprintf(stderr, " L%02d mono:=0  %d - %d  pre2 %d %d  %d %d DBG%d\n# ...",
+                    l1, mono_em_min, mono_em_max,
+                    pre2->x0, pre2->x1, box2->x0, box2->x1, __LINE__);
         }
       }
-      /* fonts are expected to be 6 to 60 pixels high, which is about
-         4 to 50 pixels wide.  We allow some extra margin.
-         space > 0 2010-09-27
-         ToDo: compare left and right gap (or additional nearest 4 gaps)
-         similar to mono space detection, check min distance
-          between upper, middle and lower rightmost vector of prev char and
-          leftmost vector of right char (hight is defined by the lower char)
-          (if overlapping chars are detected! WAV,Te,...)
-      */
-      if (0 < pdist && pdist < 140) { /* better mdist < 3*Xaverage ? */
-        // ignore extra wide spaces, tmp09/gocr_screen_capture* 2010-09-28
-        if (2*pdist<5*char_width_max)
-        /* two options for overflow: 1) ignore, 2) store randomly */
-        if (numdists<1024) {   /* we do ignore here */
-          pdists[numdists] = pdist;
-          numdists++;
+
+      /* Store proportional distances with buffer overflow protection */
+      if (0 < pdist && pdist < 140) { /* reasonable range for spaces */
+        if (2 * pdist < 5 * char_width_max) {
+          if (numdists < 1024) { /* explicit bounds check to prevent overflow */
+            pdists[numdists] = pdist;
+            numdists++;
+          } else {
+            /* Buffer full, stop adding to prevent overflow (CVE-2021-33479 fix) */
+            if (job->cfg.verbose)
+              fprintf(stderr, " L%02d WARNING: pdists buffer full, skipping further additions\n# ...", l1);
+            break;
+          }
         }
       }
-      pre2 = pre1; pre1 = box2;
+      pre2 = pre1; pre1 = box2; /* update predecessors */
     } end_for_each(&(job->res.boxlist));
-    
+
+    /* Print line statistics in verbose mode */
     if (job->cfg.verbose)
       fprintf(stderr, " L%02d num_gaps= %2d x_width= %2d - %2d"
-        " mono_em= %2d - %2d  mono= %d",
-        l1, numdists, char_width_min, char_width_max,
-        mono_em_min, mono_em_max, monospaced);
-    if (numdists<8) {
-      if (job->cfg.verbose && l1==0) /* only for all lines */
-        fprintf(stderr," (WARNING num_gaps<8)");
+              " mono_em= %2d - %2d  mono= %d",
+              l1, numdists, char_width_min, char_width_max,
+              mono_em_min, mono_em_max, monospaced);
+    if (numdists < 8) {
+      if (job->cfg.verbose && l1 == 0)
+        fprintf(stderr, " (WARNING num_gaps<8)");
     }
-#if 1 /* debugging */
-    if ((job->cfg.verbose&(32+16))==48) {
+
+    /* Debug output for sorted distances */
+    if ((job->cfg.verbose & (32 + 16)) == 48) {
       int i;
-      fprintf(stderr,"\n# ...");   
-      for (i=0;i<numdists;i++) fprintf(stderr," %2d",pdists[i]);
-      fprintf(stderr," <- pdist[%d]\n# ...",l1);
+      fprintf(stderr, "\n# ...");
+      for (i = 0; i < numdists; i++) fprintf(stderr, " %2d", pdists[i]);
+      fprintf(stderr, " <- pdist[%d]\n# ...", l1);
     }
-#endif
-    if (numdists>0) {
+
+    /* Process distances to determine pitch */
+    if (numdists > 0) {
       int i, diff, ni_min, max, best_p, ni;
-      /* aware: takes long time for big data sets */
-      /* dilute? (german: ausduennen?) */
-      qsort (pdists, numdists, sizeof (int), intcompare);
-      /* the new method, div0? */
-      best_p=4*numdists/5;
-      /* try to find better pitch for monospaced font (ok for prop) */
-      // tolerant to 090729num*  tmp09/barcodes090916_interleaved*
-      if (mono_em_min  > mono_em_max+(mono_em_min+4)/9+1 // rnd80 52 45
-       || mono_em_max>=2*mono_em_min) {
+      qsort(pdists, numdists, sizeof(int), intcompare); /* sort distances */
+      best_p = 4 * numdists / 5; /* initial guess for best pitch */
+
+      /* Adjust monospaced detection */
+      if (mono_em_min > mono_em_max + (mono_em_min + 4) / 9 + 1 ||
+          mono_em_max >= 2 * mono_em_min) {
         monospaced = 0;
         if (job->cfg.verbose)
           fprintf(stderr, "\n# ... L%02d mono:=0  %d - %d DBG%d",
-          l1, mono_em_min, mono_em_max, __LINE__);
-      } else
-        pitch_m=((mono_em_max<3*mono_em_min)?
-                 (mono_em_max+3*mono_em_min)/4:mono_em_min);
-      /* try to find better pitch for proportional font */
-      // the largest diff could be the best, if diff is always 1,
-      //  take the diff with the lowest weight
-      // JS-2010-09 add numdists<8 sample spaces20100908.jpg
-      // todo: search most offen biggest gapdiff (ignore big table gaps)
-      //   mean gapdiff? gap[n-1-i]-gap[0+i] until gapdiff=0, skip table gaps
-      // 2010-09-28 check until end of table, because old bad wide gaps are 
-      //     no more added to the table
-      for (ni=ni_min=1024,max=0,i=((numdists<8)?0:numdists/2+1);
-                                i<numdists;i++) {
-        if (pdists[i]<=char_width_min/3) continue; // JS-2010-09
-        if (pdists[i]> char_width_max*2) {
-         /* set 2nd best which is numdists as default */; break; } // JS-2010-27 table gaps
-        if (numdists<16)  // single word?
-        if (pdists[i]<=char_width_max/3) continue; // JS-2010-09
-        diff=pdists[i]-pdists[i-1];
-        if (diff>max) {
-          max=diff; best_p=i-1;
-          if ((job->cfg.verbose&(32+16))==48)
-            fprintf(stderr," L%02d best_p= %3d + maxdiff=%3d\n# ...",
-              l1, pdists[best_p], max);
-          if (max>3 &&                   3*pdists[i]>=4*pdists[i-1]) { break; }
-          if (max>1 && 3*i>numdists*2 && 3*pdists[i]>=4*pdists[i-1]) { break; }
+                  l1, mono_em_min, mono_em_max, __LINE__);
+      } else {
+        pitch_m = (mono_em_max < 3 * mono_em_min) ?
+                  (mono_em_max + 3 * mono_em_min) / 4 : mono_em_min;
+      }
+
+      /* Find best pitch for proportional font */
+      for (ni = ni_min = 1024, max = 0, i = (numdists < 8 ? 0 : numdists / 2 + 1);
+           i < numdists; i++) {
+        if (pdists[i] <= char_width_min / 3) continue;
+        if (pdists[i] > char_width_max * 2) { break; } /* skip table gaps */
+        if (numdists < 16)
+          if (pdists[i] <= char_width_max / 3) continue;
+        diff = pdists[i] - pdists[i - 1];
+        if (diff > max) {
+          max = diff; best_p = i - 1;
+          if ((job->cfg.verbose & (32 + 16)) == 48)
+            fprintf(stderr, " L%02d best_p= %3d + maxdiff=%3d\n# ...",
+                    l1, pdists[best_p], max);
+          if (max > 3 && 3 * pdists[i] >= 4 * pdists[i - 1]) { break; }
+          if (max > 1 && 3 * i > numdists * 2 && 3 * pdists[i] >= 4 * pdists[i - 1]) { break; }
         }
         if (diff) {
-          if (ni<ni_min) {
-            // do not try to divide one word per line
-            ni_min=ni; if (max<=1 && numdists>16) best_p=i-1;
-            if ((job->cfg.verbose&(32+16))==48)
-              fprintf(stderr," L%02d best_p=%3d ni_min=%3d\n# ...",
-                l1, pdists[best_p], ni_min);
+          if (ni < ni_min) {
+            ni_min = ni;
+            if (max <= 1 && numdists > 16) best_p = i - 1;
+            if ((job->cfg.verbose & (32 + 16)) == 48)
+              fprintf(stderr, " L%02d best_p=%3d ni_min=%3d\n# ...",
+                      l1, pdists[best_p], ni_min);
           }
-          ni=1;
+          ni = 1;
         } else ni++;
       }
-      if (numdists<16 && max<=1 && ni_min>1) best_p=numdists-1; // one word 
-#if 1 /* debugging */
-      if ((job->cfg.verbose&(32+16))==48) {
-        // fprintf(stderr,"\n# ...");   
-        for (i=0;i<numdists;i++) fprintf(stderr," %2d",pdists[i]);
-        fprintf(stderr," <- pdist[%d] sorted\n# ...",l1);
-        fprintf(stderr," L%02d maxdiff=%d min_samediffs=%d", l1, max, ni_min);
+      if (numdists < 16 && max <= 1 && ni_min > 1) best_p = numdists - 1;
+
+      /* Debug output for sorted distances and stats */
+      if ((job->cfg.verbose & (32 + 16)) == 48) {
+        for (i = 0; i < numdists; i++) fprintf(stderr, " %2d", pdists[i]);
+        fprintf(stderr, " <- pdist[%d] sorted\n# ...", l1);
+        fprintf(stderr, " L%02d maxdiff=%d min_samediffs=%d", l1, max, ni_min);
       }
-#endif
-      /* we measure spaces in two different ways (mono, prop) */
-      /* prop: gap between boxes,   mono: distance of middle */
-      if (best_p<numdists-1) pitch_p = ((pdists[best_p]+pdists[best_p+1])/2+1);
-      else                   pitch_p = (pdists[best_p]+1  );
+
+      /* Calculate pitch for proportional font */
+      if (best_p < numdists - 1) pitch_p = ((pdists[best_p] + pdists[best_p + 1]) / 2 + 1);
+      else pitch_p = (pdists[best_p] + 1);
       if (numdists)
-        if (   pdists[numdists-1]*2 <= pdists[0]*3
-            || pdists[numdists-1]   <= pdists[0]+3) {
-        /* line is just a single word */
-          pitch_p = pdists[numdists-1]+10;
+        if (pdists[numdists - 1] * 2 <= pdists[0] * 3 ||
+            pdists[numdists - 1] <= pdists[0] + 3) {
+          pitch_p = pdists[numdists - 1] + 10; /* single word adjustment */
         }
-      if (l1>0 && job->cfg.spc==0) {
-        job->res.lines.pitch[l1]=(monospaced?pitch_m:pitch_p);
-        job->res.lines.mono[l1]=monospaced;
+
+      /* Store pitch and monospaced flag for the line */
+      if (l1 > 0 && job->cfg.spc == 0) {
+        job->res.lines.pitch[l1] = (monospaced ? pitch_m : pitch_p);
+        job->res.lines.mono[l1] = monospaced;
       }
+
+      /* Verbose output for pitch results */
       if (job->cfg.verbose) {
-        fprintf(stderr,"\n# ...");
-        fprintf(stderr," L%02d mono: num=%3d min=%3d max=%3d pitch=%3d\n# ...",
-          l1, numdists, mono_em_min,mono_em_max,pitch_m);
-        fprintf(stderr," L%02d prop: num=%3d min=%3d max=%3d pitch=%3d @ %2d%%\n# ...",
-          l1, numdists, pdists[0],pdists[numdists-1],pitch_p,best_p*100/numdists);
-        fprintf(stderr," L%02d result: mono=%d  distance >= %d considered as space\n# ...",
-          l1, monospaced, job->res.lines.pitch[l1]);
+        fprintf(stderr, "\n# ...");
+        fprintf(stderr, " L%02d mono: num=%3d min=%3d max=%3d pitch=%3d\n# ...",
+                l1, numdists, mono_em_min, mono_em_max, pitch_m);
+        fprintf(stderr, " L%02d prop: num=%3d min=%3d max=%3d pitch=%3d @ %2d%%\n# ...",
+                l1, numdists, pdists[0], pdists[numdists - 1], pitch_p, best_p * 100 / numdists);
+        fprintf(stderr, " L%02d result: mono=%d  distance >= %d considered as space\n# ...",
+                l1, monospaced, job->res.lines.pitch[l1]);
       }
-    } /* if (not) enough spaces */
-    if (l1==0) {  /* set default spaces to each line */
+    } /* end if numdists > 0 */
+
+    /* Set default spacing for all lines if l1 == 0 */
+    if (l1 == 0) {
       int l2;
       spc = job->cfg.spc;
-      if (spc==0) /* set only if not set by option */
-        spc = ((monospaced)?pitch_m:pitch_p);
-      for  (l2=0; l2<job->res.lines.num; l2++ )
-        job->res.lines.pitch[l2]=spc;
+      if (spc == 0) /* set only if not set by option */
+        spc = (monospaced ? pitch_m : pitch_p);
+      for (l2 = 0; l2 < job->res.lines.num; l2++)
+        job->res.lines.pitch[l2] = spc;
     }
-  }  /* each line */
-  if (job->cfg.spc==0)
+  } /* end line loop */
+
+  /* Update global spacing configuration */
+  if (job->cfg.spc == 0)
     job->cfg.spc = spc;
+  
+  /* Final verbose output for overall spacing */
   if (job->cfg.verbose)
-    fprintf(stderr," overall space width is %d %s\n",
-        spc, ((monospaced)?"monospaced":"proportional"));
-
-
+    fprintf(stderr, " overall space width is %d %s\n",
+            spc, (monospaced ? "monospaced" : "proportional"));
 }
 
 /* ---- count subboxes (white holes within black area) --------
@@ -2374,294 +2359,244 @@ int compare_unknown_with_known_chars(pix * pp, int mo) {
 //  Todo: tmp08/gocr0801_bad5.jpg double-touching-"ke"= 2 holes!
 //        middle hole must be splitted to left and right char, ToDo18
 */
-int  try_to_divide_boxes( pix *pp, int mo){
+int try_to_divide_boxes(pix *pp, int mo) {
   struct box *box2, boxa, boxb;
-  job_t *job=OCR_JOB; /* fixme */
-  int cs=job->cfg.cs, ad=100,
-      a2[8], ar, // certainty of each part, ar = product of all certainties
-      cbest;  // best certainty, skip search of certainty<cbest-1 for speed
-  wchar_t ci[8],  // split max. 8 chars 
-          s1[]={ UNKNOWN, '_', '.', ',', '\'', '!', ';', '?', ':', '-', 
-      '=', '(', ')', '/', '\\', '\0' };	// not accepted chars, \0-terminated!
-  int x0, x1, y0, y1,
-      xi[8+1]; // cutting positions
-  int i, ii, i1, i2, n1, dx; // dy, dx;
-  // pix p=(*pp); // remove!
+  job_t *job = OCR_JOB; /* fixme: job context for OCR operations */
+  int cs = job->cfg.cs, ad = 100; /* contrast setting and initial certainty */
+  int a2[8], ar; /* certainty of each part, product of certainties */
+  int cbest = 0; /* best certainty, skip search if certainty < cbest-1 */
+  wchar_t ci[8]; /* split max. 8 chars */
+  wchar_t s1[] = { UNKNOWN, '_', '.', ',', '\'', '!', ';', '?', ':', '-', 
+                   '=', '(', ')', '/', '\\', '\0' }; /* not accepted chars */
+  int x0, x1, y0, y1, xi[9]; /* cutting positions, size 9 to handle 8 splits */
+  int i, ii, i1, i2, i3, n1, dx; /* loop indices, cross counts, and width */
+  
+  /* Verbose mode: print initial message */
   if (job->cfg.verbose)
-    fprintf(stderr,"# try to divide unknown chars !(mode&16)");
-  if(!(mo&16))  // put this to the caller
+    fprintf(stderr, "# try to divide unknown chars !(mode&16)");
+
+  if (!(mo & 16)) /* process only if mode flag 16 is not set */
   for_each_data(&(job->res.boxlist)) {
     box2 = (struct box *)list_get_current(&(job->res.boxlist));
-    // don't try to split simple structures (ex: 400x30 square)
-    if ((!box2->num_frames)
-       || box2->num_frame_vectors[ box2->num_frames-1 ]<9) continue; 
-    if((box2->c==UNKNOWN || (box2->num_ac && box2->wac[0]<job->cfg.certainty))
-      && box2->x1-box2->x0>5 && box2->y1-box2->y0>4){
-      x0=box2->x0; x1=box2->x1; dx= x1-x0+1;
-      y0=box2->y0; y1=box2->y1;
-      ad=100;
-      cbest=0;
-      
-      /* ocr1809_12minus "-5" */
-      ii=loop(pp,x0+1,y0,y1-y0,cs,0,DO);
-      i =loop(pp,x0+1,y1,y1-y0,cs,0,UP);
-      if (ii+i >= 7*(y1-y0-1)/8
-        && y0+ii>box2->m2 && y0+ii<box2->m3) { // check for "-5"
-        for (i1=0;i1<(x1-x0)/2;i1++) { // check v-symmetry
-          i2=loop(pp,x0+i1,y0,y1-y0,cs,0,DO);
-          if (abs(i2 - ii) > (y1-y0)/16) break; // not or end of - 
-          i2=loop(pp,x0+i1,y1,y1-y0,cs,0,UP);
-          if (abs(i2 - i ) > (y1-y0)/16) break; // not or end of - 
+    /* Skip simple structures or small boxes */
+    if ((!box2->num_frames) || box2->num_frame_vectors[box2->num_frames - 1] < 9) continue;
+    if ((box2->c == UNKNOWN || (box2->num_ac && box2->wac[0] < job->cfg.certainty))
+        && box2->x1 - box2->x0 > 5 && box2->y1 - box2->y0 > 4) {
+      x0 = box2->x0; x1 = box2->x1; dx = x1 - x0 + 1;
+      y0 = box2->y0; y1 = box2->y1;
+      ad = 100;
+      cbest = 0;
+
+      /* Check for "-5" pattern */
+      ii = loop(pp, x0 + 1, y0, y1 - y0, cs, 0, DO);
+      i = loop(pp, x0 + 1, y1, y1 - y0, cs, 0, UP);
+      if (ii + i >= 7 * (y1 - y0 - 1) / 8 && y0 + ii > box2->m2 && y0 + ii < box2->m3) {
+        for (i1 = 0; i1 < (x1 - x0) / 2; i1++) { /* check vertical symmetry */
+          i2 = loop(pp, x0 + i1, y0, y1 - y0, cs, 0, DO);
+          if (abs(i2 - ii) > (y1 - y0) / 16) break;
+          i2 = loop(pp, x0 + i1, y1, y1 - y0, cs, 0, UP);
+          if (abs(i2 - i) > (y1 - y0) / 16) break;
         }
-        if ((job->cfg.verbose&2) /* && i1>(x1-x0)/3*/){
-          fprintf(stderr,
-      "\n# try_to_divide_box(xy,dxy): %4d %4d %3d %3d as -5 xcut= %d-1",
-             x0, y0, x1-x0+1, y1-y0+1, i1); }
-        if (i1>(x1-x0-1)/4) {
-          i=0; boxa=*box2;   // copy contents, ToDo: reset ac-list (in cut_box?)
-          boxa.x=x0; boxa.y=y0;        // obsolete? mark pixel, overlap?
-          boxa.x0=xi[i]=x0;boxa.x1=xi[i+1]=x0+i1-1;  // new horizontal box range   
-          cut_box(&boxa); boxa.num_ac=0;  // ToDo: add box2 as src argument?
-          ci[i]=whatletter(&boxa,cs,0); /* get char */
-          a2[i]=testac(&boxa,ci[i]); /* get certainty */
-          if ((ci[i]=='-' || ci[i]=='_') && a2[i]>=97) // 2018-09 "-5"
-          { setac(&boxa,ci[i],a2[i]=99);
-              if ((job->cfg.verbose&2)) {
-               DBG(fprintf(stderr,"\nDBG %s set split certainty 99",\
-               decode(ci[0],ASCII))); }}
-          i++; boxb=*box2;  // try rest if it has to be split again
-          boxb.x=xi[i]+1; boxb.y=y0;
-          boxb.x0=xi[i]+1;boxb.x1=xi[i+1]=box2->x1;
-          cut_box(&boxb); boxb.num_ac=0;  
-          ci[i]=whatletter(&boxb,cs,0); a2[i]=testac(&boxb,ci[i]);
-          if (a2[0]>=97 && a2[1]>=99) // 2018-09 "-5"
-          { char buf[8]=""; setac(&boxb,ci[i],a2[i]=99);
-              if ((job->cfg.verbose&2)) {
-              DBG(fprintf(stderr,"\nDBG %s set split certainty 99",\
-               decode(ci[1],ASCII)));}
-            buf[0]=ci[0];buf[1]=ci[1];buf[2]=0;
-            ar=a2[1]; // not final, just testing
-            if (buf[0]) setas(box2,buf,ar); }
-        }
-      } /* check "-5" split */
-      
-      /* get minimum vertical lines, but fails on ocr1809_12minus "-5" */
-      n1 = num_cross(x0,x1,(  y1+y0)/2,(  y1+y0)/2,pp,cs);
-      ii = num_cross(x0,x1,(3*y1+y0)/4,(3*y1+y0)/4,pp,cs); if (ii<n1) n1=ii;
-      if (box2->m2 && box2->m3 > box2->m2+2)
-      for (i=box2->m2+1;i<=box2->m3-1;i++) {
-        // 2017-07 patch from LLeroy2005
-        if ((i<=y0) || (i>=y1)) continue; // box smaller than baseline
-        if (loop(pp,x0+1,i,x1-x0,cs,1,RI) > (x1-x0-2)) continue; // ll
-        ii = num_cross(x0,x1,i,i,pp,cs); if (ii<n1) n1=ii;
-      } if (n1<2) continue;  // seems to make no sense to divide
-      if (n1<4) ad=99*ad/100; // not to strong because m2+m3 could be wrong
-      if (n1<3) ad=99*ad/100;
-            
-      if( 2*y1 < box2->m3+box2->m4    /* baseline char ? */
-       && num_cross(x0,x1,y1-1,y1-1,pp,cs)==1  // -1 for slopes
-       && num_cross((x0+2*x1)/3,(x0+3*x1)/4,y0,y1,pp,cs)<3  // not exclude tz
-       && num_cross((3*x0+x1)/4,(2*x0+x1)/3,y0,y1,pp,cs)<3  // not exclude zl
-       && loop(pp,x0,y1-(y1-y0)/32,x1-x0,cs,0,RI)
-         +loop(pp,x1,y1-(y1-y0)/32,x1-x0,cs,0,LE) > (x1-x0+1)/2
-        ) continue; /* do not try on bvdo"o etc. */
-        
-      // one vertical line can not be two glued chars, lc?
-      if ( num_cross(x0,x1,(y1+y0)/2,(y1+y0)/2,pp,cs)<=1 ) continue;
-      {	// doublet = 2 letters
-        // char buf[4]="\0\0\0";      // 4th byte is string end == \0
-        // buf[0]=c1;                 // c1 is wchar_t! (0xbf00 to 0) failes
-        // buf[1]=c2;
-        char buf[64]="";      // end == \0
-        if (job->cfg.verbose&2){  int l1=box2->line;
-          fprintf(stderr,
-             "\n# try_to_divide_box(xy,dxy): %4d %4d %3d %3d L%02d mono=%d",
-             x0, y0, x1-x0+1, y1-y0+1, l1, job->res.lines.mono[l1] /* 1=mono */);
-          if (job->cfg.verbose&4) out_x(box2); // list box as data+ASC-image
-        }
-        // for mono-spaced/teletext fonts only wide chars molten!?
-        // Todo: or search 2 invers vectors at xi[1], p.e. diag. touch
-        { int i4, i5, i6=-1, i7=-1, i8=-1, i9=-1;
-          int num_allvec= box2->num_frame_vectors[box2->num_frames-1]-1;
-          for (i4=0;i4<num_allvec-1;i4++)
-             if ( box2->frame_vector[i4  ][0]!=x0
-               && box2->frame_vector[i4  ][0]!=x1
-               && box2->frame_vector[i4+1][0]!=x0
-               && box2->frame_vector[i4+1][0]!=x1
-               && box2->frame_vector[i4  ][1]!=y0
-               && box2->frame_vector[i4  ][1]!=y1
-               && box2->frame_vector[i4+1][1]!=y0
-               && box2->frame_vector[i4+1][1]!=y1
-               && abs(box2->frame_vector[i4+1][0]  // dx==1
-                     -box2->frame_vector[i4  ][0])==1
-               && abs(box2->frame_vector[i4+1][1]  // dy==1
-                     -box2->frame_vector[i4  ][1])==1 )
-            for (i5=i4+2;i5<num_allvec;i5++)
-              /* same point in opposit direction == diag dots? */
-              /* may fail if one vector is longer 1+1 ... ToDo18 */
-              if (box2->frame_vector[i4  ][0]
-               == box2->frame_vector[i5  ][0]
-               && box2->frame_vector[i4  ][1]
-               == box2->frame_vector[i5  ][1]
-               && box2->frame_vector[i4+1][0]
-               == box2->frame_vector[i5-1][0]
-               && box2->frame_vector[i4+1][1]
-               == box2->frame_vector[i5-1][1]) {
-              if(job->cfg.verbose&2)
-        fprintf(stderr,"DBG vsplit i45= %d %d i67 %d %d i89 %d %d"
-                " xy=%2d %2d ToDo\n", i4, i5, i6, i7, i8, i9,
-                  box2->frame_vector[i4][0]-x0,
-                  box2->frame_vector[i4][1]-y0);
-              if (i6==-1) { i6=i4; i7=i5; } else /* unique */
-              if (i8==-1) { i8=i4; i9=i5; } else /* unique */
-              { i4=num_allvec; break; } // max 2 cut-points or abort
-              /* ToDo: else break? ore store 2 max. */
-           } // found touching vectors
-           // ToDo18: handle split at vectors i4 i5 and/or i6 i7
-           //  p.e. tmp13/sslmozFP.png bold 8x9 proportional font "nt" "To"
-           //  p.e. tmp09/barcodes090916_code39.png 10x12 prop.font "ow"
-           // ...
-        } // inverse vectors
-        // it would be better if testing is only if most right and left char
-        //    has no horizontal gap (below m2) ex: be
-        i=0; // num splittet chars
-        xi[0]=x0; xi[1]=x0+(dx/8)+1; xi[2]=x1; // split_to xi0..1 and xi1..2
-        for ( ; ; xi[i+1]++) { // x[i] .. x[i+1], slower? but better v0.42
-          int bow=0;   // default = no bow = no cutting = fail divide
-          // ToDo: skip if not a local dy-min for speedup
-          // int num_b2vec= box2->num_frame_vectors[box2->num_frames-1]-1;
-          int num_allvec= box2->num_frame_vectors[box2->num_frames-1]-1;
-          // int num_b2vec= box2->num_frame_vectors[0]-1; // biggest frame
-          int i1, i2, i3; /* vector indizes around cutting gaps */
-          /* break if x is to near to the right border */
-          if (xi[i+1]>x1-dx/8-1) { if (i==0) break;
-              i--; xi[i+2]=x1; continue; }
-          int l1=box2->line, mono=job->res.lines.mono[l1]; // 2018-10 add
-          if (mono &&  // 2018-10 use monofont advantage
-           ( abs(abs(xi[i+1]-x0) -   job->res.lines.pitch[l1])  /* 2 chars */
-                                 >   job->res.lines.pitch[l1]/8
-          && abs(abs(xi[i+1]-x0) - 2*job->res.lines.pitch[l1])  /* 3 chars */
-                                 >   job->res.lines.pitch[l1]/8 ) ) continue;
-          if (mono && job->cfg.verbose&2) // rnd80-Droid-Sans-Mono-Regular ww
-            fprintf(stderr,"\n#DBG monosplit x01,xi,pitch= %4d %4d %4d %4d",
-              x0, x1-x0+1, xi[i+1]-x0,job->res.lines.pitch[l1]);
-          //  ToDo: search invers vectors (diagonal touching chars)
-          //        between left-down and right-down vectors
-          //        and right-(middle)top and left-top vectors
-          // "To" "rn" "fi" "nt" "ity" bold 8x9 tmp13/sslmozFP.png
-          // 2017-03 new nearest_frame-version, check lower ends
-          if (box2->num_frames<1) fprintf(stderr,"ERROR.split frames=0\n");
-          // search vectors near (xi1,y1) = bottom of char and (xi1,y0) = top
-          // failed on tmp08/gocr0801_bad5.jpg "ke"
-//          i1=nearest_frame_vector(box2, 0,num_allvec, (xi[0]+3*xi[1])/4, y1);
-//          i3=nearest_frame_vector(box2, 0,num_allvec, (3*xi[1]+xi[2])/4, y1);
-          i1=nearest_frame_vector(box2, 0,num_allvec, (xi[0]+xi[1])/2, y1);
-          i3=nearest_frame_vector(box2, 0,num_allvec, (xi[1]+xi[2])/2, y1);
-          i2=nearest_frame_vector(box2,i1,i3, xi[1], y0);
-          
-          // 2017-08 vectors may lay on border, x1=+3..-3 replaced by +dx/8+1
-          // 2017-08 num_b2vec replaced by num_allvec to split small 'Fi'
-          DBG( if(job->cfg.verbose&2) // 2018-09
-            fprintf(stderr,"\nDBG split at xi,i123 %2d %2d %2d"\
-               " #%02d #%02d #%02d dy %d",\
-               xi[0]-x0,xi[1]-x0,xi[2]-x0,i1,i2,i3,y1-y0+1); )
-          if (i1==i2 || i2==i3) continue;  /* must be different 2017-03 */
-          if (-2*box2->frame_vector[i2][1] 
-                +box2->frame_vector[i1][1]
-                +box2->frame_vector[i3][1]>(y1-y0)/2) bow=1; // big dy
-          // ToDo17: do not cut holes!? check other nearest_frame_vectors?
-          //   tmp09/barcodes090916_code39.png "ow"
-          //   tmp13/sslmozFP.png "Fi" "To" "ity" 
-          if(job->cfg.verbose&2)
-            fprintf(stderr,"\n# test split at  x%d= %2d %2d %2d"
-                    " bow %d i123=%2d %2d %2d",
-                      i, xi[i]-x0, xi[i+1]-x0, xi[i+2]-x0,
-                      bow, i1,i2,i3);
-          /* skip if no local minimum at xi[i+1] or if its not thin enough */ 
-          // 2010-10-11 failes for ke on tmp08/gocr0801_bad5.jpg ToDo!!!
-//          if (bow==0 || 4*(ymax-ymin)>2*(y1-y0)) continue;
-          if (bow==0) continue;
-          // cuttet parts should have about the same height (max-min)
-          // we dont want to cut an 'n' in three parts!
-          // ToDo: thickness on xi[i+1]?
-          // try to split successive right box if left box is recognised,
-          // else shift the splitting point further to the right border 
-          // removing ->dots if dot only above one char !!! ??? not implemented
-          if(job->cfg.verbose&2)
-            fprintf(stderr,"\n# try to split, newbox[%d].x= %2d ... %2d "
-                           "dy= %d ", i, xi[i]-x0, xi[i+1]-x0, y1-y0+1);
-          boxa=*box2;	// copy contents, ToDo: reset ac-list (in cut_box?)
-          boxa.x=xi[i]; boxa.y=y0;        // obsolete? mark pixel, overlap?
-          boxa.x0=xi[i];boxa.x1=xi[i+1];  // new horizontal box range
-          // ToDo: vector-version cut at 2vec near xi, allow dx/8 overlapp!
-          //   see tmp13/ssl* "To"
-          cut_box(&boxa); boxa.num_ac=0;  // ToDo: add box2 as src argument?
-          // out_x(&boxa);
-          // get wchar + certainty
-          ci[i]=whatletter(&boxa,cs,0); /* get char */
-          a2[i]=testac(&boxa,ci[i]); /* get certainty */
-          if ((ci[i]=='c' || ci[i]=='C') && a2[i]==100) // 2018-09 "ow" read as 100% "cw"
-            { setac(&boxa,ci[i],a2[i]=99);
-              DBG(fprintf(stderr,"\nDBG set split certainty 99");)}
-          if(job->cfg.verbose&2)
-            fprintf(stderr,"\n#  certainty %d  limit= %d  cbest= %d ",
-                           a2[i], job->cfg.certainty, cbest);
-	  if (a2[i]<job->cfg.certainty || a2[i]<cbest-1
-	   || wcschr(s1,ci[i]) ) { continue; }  // dont split here
-
-          for (ar=ad,ii=0;ii<=i;ii++) {
-            ar=a2[ii]*ar/100; }  // multiply all probabilities
-	  if (ar<98*job->cfg.certainty/100 || ar<cbest) {
-            continue; } // dont go deeper, no longer string
-
-	  i++; if (i==8) break; // maximum splits
-	  if (i==4) break;  // at the moment its to slow to go further 
-	  if (i+1<8) xi[i+1]=x1;  // right border of next box
-	  if (i+2<8) xi[i+2]=x1;
-
-          if(job->cfg.verbose&2)
-            fprintf(stderr,"\n try end split [%d].x=%d [%d].x=%d ",
-                           i, xi[i]-x0, i+1, xi[i+1]-x0);
-          boxb=*box2;  // try rest if it has to be split again
-          boxb.x=xi[i]+1; boxb.y=y0;
-          boxb.x0=xi[i]+1;boxb.x1=xi[i+1];
-          cut_box(&boxb); boxb.num_ac=0;
-          ci[i]=whatletter(&boxb,cs,0); a2[i]=testac(&boxb,ci[i]);
-	  if (a2[i]<job->cfg.certainty || a2[i]<cbest-1
-	   || wcschr(s1,ci[i]) ) { xi[i+1]=xi[i]+2; continue; } // split rest
-	  // now we have everything splittet
-
-          if(job->cfg.verbose&2) {
-            fprintf(stderr,"\n split at/to: ");
-            for (ii=0;ii<=i;ii++)
-            fprintf(stderr,"  %2d %s (%3d)", xi[ii+1]-x0,
-              decode(ci[ii],ASCII), a2[ii]);
-            fprintf(stderr,"\n");
+        if (job->cfg.verbose & 2)
+          fprintf(stderr, "\n# try_to_divide_box(xy,dxy): %4d %4d %3d %3d as -5 xcut= %d-1",
+                  x0, y0, x1 - x0 + 1, y1 - y0 + 1, i1);
+        if (i1 > (x1 - x0 - 1) / 4) {
+          i = 0; boxa = *box2;
+          boxa.x = x0; boxa.y = y0;
+          boxa.x0 = xi[0] = x0; boxa.x1 = xi[1] = x0 + i1 - 1; /* set boxa range */
+          cut_box(&boxa); boxa.num_ac = 0;
+          ci[i] = whatletter(&boxa, cs, 0); /* get char */
+          a2[i] = testac(&boxa, ci[i]); /* get certainty */
+          if ((ci[i] == '-' || ci[i] == '_') && a2[i] >= 97) { /* adjust certainty for "-5" */
+            setac(&boxa, ci[i], a2[i] = 99);
+            if (job->cfg.verbose & 2)
+              fprintf(stderr, "\nDBG %s set split certainty 99", decode(ci[0], ASCII));
           }
-	  // boxa..c changed!!! dots should be modified!!!
-          // Question: cut it into boxes v0.40 or set a string v0.41?
-          // new way of building a string v0.41 (can call setas multiple)
-          // usefull if compare unknown with known strings (except barcode?)
-          // ToDo: also create alternate variants? ex: I <-> l
-          for (buf[0]=0,ar=ad,ii=0;ii<=i;ii++) {
-            ar=a2[ii]*ar/100;  // multiply all probabilities
-            if (i>0 && ci[ii]=='n' && ci[ii-1]=='r') ar--; // m == rn
-            strncat(buf,decode(ci[ii],job->cfg.out_format),20);
+          i++; boxb = *box2;
+          boxb.x = xi[i] + 1; boxb.y = y0;
+          boxb.x0 = xi[i] + 1; boxb.x1 = xi[i + 1] = box2->x1;
+          cut_box(&boxb); boxb.num_ac = 0;
+          ci[i] = whatletter(&boxb, cs, 0); a2[i] = testac(&boxb, ci[i]);
+          if (a2[0] >= 97 && a2[1] >= 99) { /* confirm "-5" split */
+            char buf[64] = ""; /* buffer for string construction, fixed size */
+            setac(&boxb, ci[i], a2[i] = 99);
+            if (job->cfg.verbose & 2)
+              fprintf(stderr, "\nDBG %s set split certainty 99", decode(ci[1], ASCII));
+            if (i < 8) { /* bounds check for ci and xi (CVE-2021-33481 fix) */
+              buf[0] = ci[0]; buf[1] = ci[1]; buf[2] = 0;
+              ar = a2[1];
+              if (buf[0]) setas(box2, buf, ar);
+            }
+          }
+        }
+      }
+
+      /* Get minimum vertical lines for splitting */
+      n1 = num_cross(x0, x1, (y1 + y0) / 2, (y1 + y0) / 2, pp, cs);
+      ii = num_cross(x0, x1, (3 * y1 + y0) / 4, (3 * y1 + y0) / 4, pp, cs);
+      if (ii < n1) n1 = ii;
+      if (box2->m2 && box2->m3 > box2->m2 + 2) {
+        for (i = box2->m2 + 1; i <= box2->m3 - 1; i++) {
+          if (i <= y0 || i >= y1) continue; /* skip if outside box */
+          if (loop(pp, x0 + 1, i, x1 - x0, cs, 1, RI) > (x1 - x0 - 2)) continue;
+          ii = num_cross(x0, x1, i, i, pp, cs);
+          if (ii < n1) n1 = ii;
+        }
+      }
+      if (n1 < 2) continue; /* no sense to divide */
+      if (n1 < 4) ad = 99 * ad / 100; /* adjust certainty for weak splits */
+      if (n1 < 3) ad = 99 * ad / 100;
+
+      /* Skip baseline chars and certain patterns */
+      if (2 * y1 < box2->m3 + box2->m4 &&
+          num_cross(x0, x1, y1 - 1, y1 - 1, pp, cs) == 1 &&
+          num_cross((x0 + 2 * x1) / 3, (x0 + 3 * x1) / 4, y0, y1, pp, cs) < 3 &&
+          num_cross((3 * x0 + x1) / 4, (2 * x0 + x1) / 3, y0, y1, pp, cs) < 3 &&
+          loop(pp, x0, y1 - (y1 - y0) / 32, x1 - x0, cs, 0, RI) +
+          loop(pp, x1, y1 - (y1 - y0) / 32, x1 - x0, cs, 0, LE) > (x1 - x0 + 1) / 2)
+        continue;
+
+      /* Skip if only one vertical line */
+      if (num_cross(x0, x1, (y1 + y0) / 2, (y1 + y0) / 2, pp, cs) <= 1) continue;
+
+      /* Attempt to divide box into parts */
+      {
+        char buf[64] = ""; /* buffer for string construction, fixed size 64 */
+        if (job->cfg.verbose & 2) {
+          int l1 = box2->line;
+          fprintf(stderr, "\n# try_to_divide_box(xy,dxy): %4d %4d %3d %3d L%02d mono=%d",
+                  x0, y0, x1 - x0 + 1, y1 - y0 + 1, l1, job->res.lines.mono[l1]);
+          if (job->cfg.verbose & 4) out_x(box2);
+        }
+
+        /* Search for diagonal touching vectors */
+        {
+          int i4, i5, i6 = -1, i7 = -1, i8 = -1, i9 = -1;
+          int num_allvec = box2->num_frame_vectors[box2->num_frames - 1] - 1;
+          for (i4 = 0; i4 < num_allvec - 1; i4++) {
+            if (box2->frame_vector[i4][0] != x0 && box2->frame_vector[i4][0] != x1 &&
+                box2->frame_vector[i4 + 1][0] != x0 && box2->frame_vector[i4 + 1][0] != x1 &&
+                box2->frame_vector[i4][1] != y0 && box2->frame_vector[i4][1] != y1 &&
+                box2->frame_vector[i4 + 1][1] != y0 && box2->frame_vector[i4 + 1][1] != y1 &&
+                abs(box2->frame_vector[i4 + 1][0] - box2->frame_vector[i4][0]) == 1 &&
+                abs(box2->frame_vector[i4 + 1][1] - box2->frame_vector[i4][1]) == 1) {
+              for (i5 = i4 + 2; i5 < num_allvec; i5++) {
+                if (box2->frame_vector[i4][0] == box2->frame_vector[i5][0] &&
+                    box2->frame_vector[i4][1] == box2->frame_vector[i5][1] &&
+                    box2->frame_vector[i4 + 1][0] == box2->frame_vector[i5 - 1][0] &&
+                    box2->frame_vector[i4 + 1][1] == box2->frame_vector[i5 - 1][1]) {
+                  if (job->cfg.verbose & 2)
+                    fprintf(stderr, "DBG vsplit i45= %d %d i67 %d %d i89 %d %d xy=%2d %2d ToDo\n",
+                            i4, i5, i6, i7, i8, i9, box2->frame_vector[i4][0] - x0,
+                            box2->frame_vector[i4][1] - y0);
+                  if (i6 == -1) { i6 = i4; i7 = i5; }
+                  else if (i8 == -1) { i8 = i4; i9 = i5; }
+                  else { i4 = num_allvec; break; } /* max 2 cut-points */
+                }
+              }
+            }
+          }
+        }
+
+        /* Attempt splitting at various positions */
+        i = 0; /* number of split chars */
+        xi[0] = x0; xi[1] = x0 + (dx / 8) + 1; xi[2] = x1; /* initial split points */
+        for (; i < 8; xi[i + 1]++) { /* bounds check for i (CVE-2021-33481 fix) */
+          int bow = 0; /* flag for cutting point */
+          if (xi[i + 1] > x1 - dx / 8 - 1) { if (i == 0) break; i--; xi[i + 2] = x1; continue; }
+          int l1 = box2->line, mono = job->res.lines.mono[l1];
+          if (mono && (abs(abs(xi[i + 1] - x0) - job->res.lines.pitch[l1]) > job->res.lines.pitch[l1] / 8 &&
+                       abs(abs(xi[i + 1] - x0) - 2 * job->res.lines.pitch[l1]) > job->res.lines.pitch[l1] / 8))
+            continue;
+          if (mono && job->cfg.verbose & 2)
+            fprintf(stderr, "\n#DBG monosplit x01,xi,pitch= %4d %4d %4d %4d",
+                    x0, x1 - x0 + 1, xi[i + 1] - x0, job->res.lines.pitch[l1]);
+
+          /* Search vectors for cutting point */
+          int num_allvec = box2->num_frame_vectors[box2->num_frames - 1] - 1;
+          i1 = nearest_frame_vector(box2, 0, num_allvec, (xi[0] + xi[1]) / 2, y1);
+          i3 = nearest_frame_vector(box2, 0, num_allvec, (xi[1] + xi[2]) / 2, y1);
+          i2 = nearest_frame_vector(box2, i1, i3, xi[1], y0);
+          if (job->cfg.verbose & 2)
+            fprintf(stderr, "\nDBG split at xi,i123 %2d %2d %2d #%02d #%02d #%02d dy %d",
+                    xi[0] - x0, xi[1] - x0, xi[2] - x0, i1, i2, i3, y1 - y0 + 1);
+          if (i1 == i2 || i2 == i3) continue;
+          if (-2 * box2->frame_vector[i2][1] + box2->frame_vector[i1][1] +
+              box2->frame_vector[i3][1] > (y1 - y0) / 2) bow = 1;
+          if (job->cfg.verbose & 2)
+            fprintf(stderr, "\n# test split at  x%d= %2d %2d %2d bow %d i123=%2d %2d %2d",
+                    i, xi[i] - x0, xi[i + 1] - x0, xi[i + 2] - x0, bow, i1, i2, i3);
+          if (bow == 0) continue;
+
+          /* Try splitting into boxa */
+          if (job->cfg.verbose & 2)
+            fprintf(stderr, "\n# try to split, newbox[%d].x= %2d ... %2d dy= %d ",
+                    i, xi[i] - x0, xi[i + 1] - x0, y1 - y0 + 1);
+          boxa = *box2;
+          boxa.x = xi[i]; boxa.y = y0;
+          boxa.x0 = xi[i]; boxa.x1 = xi[i + 1];
+          cut_box(&boxa); boxa.num_ac = 0;
+          ci[i] = whatletter(&boxa, cs, 0); a2[i] = testac(&boxa, ci[i]);
+          if ((ci[i] == 'c' || ci[i] == 'C') && a2[i] == 100) {
+            setac(&boxa, ci[i], a2[i] = 99);
+            if (job->cfg.verbose & 2) fprintf(stderr, "\nDBG set split certainty 99");
+          }
+          if (job->cfg.verbose & 2)
+            fprintf(stderr, "\n#  certainty %d  limit= %d  cbest= %d ",
+                    a2[i], job->cfg.certainty, cbest);
+          if (a2[i] < job->cfg.certainty || a2[i] < cbest - 1 || wcschr(s1, ci[i])) continue;
+
+          /* Calculate combined certainty */
+          for (ar = ad, ii = 0; ii <= i; ii++) ar = a2[ii] * ar / 100;
+          if (ar < 98 * job->cfg.certainty / 100 || ar < cbest) continue;
+          i++; if (i >= 8) break; /* max splits, bounds check (CVE-2021-33481 fix) */
+          if (i == 4) break; /* limit for performance */
+          if (i + 1 < 9) xi[i + 1] = x1; /* bounds check for xi */
+          if (i + 2 < 9) xi[i + 2] = x1;
+
+          /* Try splitting remaining part into boxb */
+          if (job->cfg.verbose & 2)
+            fprintf(stderr, "\n try end split [%d].x=%d [%d].x=%d ",
+                    i, xi[i] - x0, i + 1, xi[i + 1] - x0);
+          boxb = *box2;
+          boxb.x = xi[i] + 1; boxb.y = y0;
+          boxb.x0 = xi[i] + 1; boxb.x1 = xi[i + 1];
+          cut_box(&boxb); boxb.num_ac = 0;
+          ci[i] = whatletter(&boxb, cs, 0); a2[i] = testac(&boxb, ci[i]);
+          if (a2[i] < job->cfg.certainty || a2[i] < cbest - 1 || wcschr(s1, ci[i])) {
+            if (i + 1 < 9) xi[i + 1] = xi[i] + 2; /* bounds check for xi */
+            continue;
           }
 
-          if (ar>cbest) cbest=ar; // best (highest) certainty found
-          // reduce, but not if we cross certainty border
-          if (99*ar/100 > job->cfg.certainty) ar=99*ar/100;
-          if (job->cfg.verbose&2)
-            fprintf(stderr,"\n split result= %s (%3d) ",buf, ar);
-          setas(box2,buf,ar); // char *, does it disturb further splitting?
-          buf[0]=0;
-          i--; xi[i+2]=x1;
-        } /* xi[i+1]++ */
-      } /* divide box */
-    } /* unknown box dx>5 */
+          /* Log split results */
+          if (job->cfg.verbose & 2) {
+            fprintf(stderr, "\n split at/to: ");
+            for (ii = 0; ii <= i; ii++)
+              fprintf(stderr, "  %2d %s (%3d)", xi[ii + 1] - x0, decode(ci[ii], ASCII), a2[ii]);
+            fprintf(stderr, "\n");
+          }
+
+          /* Build and set result string */
+          for (buf[0] = 0, ar = ad, ii = 0; ii <= i; ii++) {
+            ar = a2[ii] * ar / 100;
+            if (i > 0 && ci[ii] == 'n' && ci[ii - 1] == 'r') ar--; /* adjust for rn vs m */
+            if (ii < 8) { /* bounds check for ci (CVE-2021-33481 fix) */
+              strncat(buf, decode(ci[ii], job->cfg.out_format), 20);
+            }
+          }
+          if (ar > cbest) cbest = ar;
+          if (99 * ar / 100 > job->cfg.certainty) ar = 99 * ar / 100;
+          if (job->cfg.verbose & 2)
+            fprintf(stderr, "\n split result= %s (%3d) ", buf, ar);
+          setas(box2, buf, ar);
+          buf[0] = 0;
+          i--; if (i + 2 < 9) xi[i + 2] = x1; /* bounds check for xi */
+        } /* end xi[i+1]++ loop */
+      } /* end divide box */
+    } /* end unknown box check */
   } end_for_each(&(job->res.boxlist));
-  if (job->cfg.verbose) fprintf(stderr,", numC %d\n",job->res.numC); 
+
+  if (job->cfg.verbose) fprintf(stderr, ", numC %d\n", job->res.numC);
   return 0;
 }
 
@@ -2758,263 +2693,242 @@ int setc(struct box *box2, wchar_t cc){
    - should be language-settable; Unicode compatible 
    - box2->ad and wac should be changed? (not proper yet)
  *  ------------- */
-int context_correction( job_t *job ) {
- // const static char
-  char *l_vowel="aeiouy";
-    // *l_Vowel="AEIOU",chars if the environment (nonumbers)
-  char *l_nonvo = "bcdfghjklmnpqrstvwxzBCDFGHJKLMNPQRSTVWXZ";
-  int  hexdigits = 0, hexdivpos = 0; // "O0lI123456789ABCDEFabcdef:"
+int context_correction(job_t *job) {
+  char *l_vowel = "aeiouy"; /* vowels for context analysis */
+  char *l_nonvo = "bcdfghjklmnpqrstvwxzBCDFGHJKLMNPQRSTVWXZ"; /* non-vowels */
+  int hexdigits = 0, hexdivpos = 0; /* track hex context and divider position */
   struct box *box3, *box2, *prev, *next, *pre2, *pre3, *pre4;
-  int dx, dy, O0_num=0, O0_slashed_zeros=0,
-      O0_maxw=0, O0_minw=999999, O0_maxh=0, O0_minh=999999; 
-  //  pix *pp = &(job->src.p);
-  int nc=0, ns=0; // num corrections
-  wchar_t last_double_quotation=0; // correction of different quotations "
-  pre4=pre3=pre2=prev=next=NULL;
+  int dx, dy, O0_num = 0, O0_slashed_zeros = 0;
+  int O0_maxw = 0, O0_minw = 999999, O0_maxh = 0, O0_minh = 999999;
+  int nc = 0, ns = 0; /* number of corrections and removed spaces */
+  wchar_t last_double_quotation = 0; /* track quotation mark context */
+  pre4 = pre3 = pre2 = prev = next = NULL;
 
+  /* Verbose mode: print initial message */
   if (job->cfg.verbose)
     fprintf(stderr, "# context correction Il1 O0\n");
-    
-  // 1st loop to make max/min/num-statistics O0-correction 2018-09 rnd.tt
+
+  /* First loop: collect statistics for O0 correction */
   for_each_data(&(job->res.boxlist)) {
     box2 = (struct box *)list_get_current(&(job->res.boxlist));
-    dx= box2->x1 - box2->x0 + 1;
-    dy= box2->y1 - box2->y0 + 1;
-    if (box2->c && strchr("O0",box2->c)  /* strchr "O0" 0x00 = true */
-        && dy >= box2->m3 - box2->m2){ /* do not at ° */ 
-      // IFV fprintf(stderr,"\n# O0 stat nac=%d %s %3d at %3d %3d",
-       // box2->num_ac,decode(box2->c,ASCII), box2->wac[0], box2->x0, box2->y0);
-      // ToDo18 maxw < 2*mean_dx
+    dx = box2->x1 - box2->x0 + 1;
+    dy = box2->y1 - box2->y0 + 1;
+    if (box2->c && strchr("O0", box2->c) && dy >= box2->m3 - box2->m2) {
       O0_num++;
-      if (box2->num_frames==3 && box2->c=='0') O0_slashed_zeros++;
-      if (O0_maxw < dx) O0_maxw= dx;  /* max width O */
-      if (O0_minw > dx) O0_minw= dx;  /* min width 0 */
-      if (O0_maxh < dy) O0_maxh= dy;  /* max high  0 */
-      if (O0_minh > dy) O0_minh= dy;  /* min high  O */
+      if (box2->num_frames == 3 && box2->c == '0') O0_slashed_zeros++;
+      if (O0_maxw < dx) O0_maxw = dx; /* max width O */
+      if (O0_minw > dx) O0_minw = dx; /* min width 0 */
+      if (O0_maxh < dy) O0_maxh = dy; /* max height 0 */
+      if (O0_minh > dy) O0_minh = dy; /* min height O */
     }
   } end_for_each(&(job->res.boxlist));
+
   if (job->cfg.verbose)
     fprintf(stderr, "# O0 num= %d slashed0=%d mimaxW %d %d", 
-      O0_num, O0_slashed_zeros, O0_minw, O0_maxw);
+            O0_num, O0_slashed_zeros, O0_minw, O0_maxw);
 
-  // 2nd loop to make corrections
+  /* Second loop: perform context-based corrections */
   for_each_data(&(job->res.boxlist)) {
-    pre4=pre3; pre3 = pre2; pre2 = prev; // 2010-10-01 tmp08/080916_JL*_150
+    pre4 = pre3; pre3 = pre2; pre2 = prev;
     box2 = (struct box *)list_get_current(&(job->res.boxlist));
     prev = (struct box *)list_get_cur_prev(&(job->res.boxlist));
     next = (struct box *)list_get_cur_next(&(job->res.boxlist));
-    dx= box2->x1 - box2->x0 + 1;
-    dy= box2->y1 - box2->y0 + 1;
-    if (box2->c==0) continue; // 2018-09 strchr false positive
-    // ToDo: count last_upper, lower, digits, hexdigits
-    // 2010-10-10 hex-mode tmp08/gocr0801_bad5
-    if (box2->c && strchr("O0lI123456789ABCDEFabcdef",box2->c)) hexdigits++;
-    else if (box2->c && strchr(": ",box2->c) && prev && prev->c!=box2->c
-         && (hexdigits-hexdivpos==2 || hexdigits-hexdivpos==4))
-           hexdivpos=hexdigits;
-      else { hexdigits=0; hexdivpos=0; }
-    if (box2->c==' ' && prev && prev->c==' ') hexdigits=0;
-    if (box2->c==':' && pre3 && pre3->c!=':') hexdigits=0; // :89:AB:CD:
-    if (box2->c && strchr("O0",box2->c) && hexdigits>5) nc+=setc(box2,(wchar_t)'0');
-    if (box2->c && strchr("l1",box2->c) && hexdigits>5) nc+=setc(box2,(wchar_t)'1');
-    // 2010-10-01 sample tmp08/0811CSchulze_crop
-    if (box2->c==DOUBLE_LOW_9_QUOTATION_MARK) {
+    dx = box2->x1 - box2->x0 + 1;
+    dy = box2->y1 - box2->y0 + 1;
+    if (box2->c == 0) continue; /* skip null characters */
+
+    /* Track hex context for corrections */
+    if (box2->c && strchr("O0lI123456789ABCDEFabcdef", box2->c)) hexdigits++;
+    else if (box2->c && strchr(": ", box2->c) && prev && prev->c != box2->c
+             && (hexdigits - hexdivpos == 2 || hexdigits - hexdivpos == 4))
+      hexdivpos = hexdigits;
+    else { hexdigits = 0; hexdivpos = 0; }
+    if (box2->c == ' ' && prev && prev->c == ' ') hexdigits = 0;
+    if (box2->c == ':' && pre3 && pre3->c != ':') hexdigits = 0;
+
+    /* Correct O0 and l1 in hex context */
+    if (box2->c && strchr("O0", box2->c) && hexdigits > 5) nc += setc(box2, (wchar_t)'0');
+    if (box2->c && strchr("l1", box2->c) && hexdigits > 5) nc += setc(box2, (wchar_t)'1');
+
+    /* Handle double quotation marks */
+    if (box2->c == DOUBLE_LOW_9_QUOTATION_MARK) {
       last_double_quotation = box2->tac[0];
-      fprintf(stderr,"\n#  ... found DOUBLE_LOW_9_QUOTATION_MARK");
+      if (job->cfg.verbose)
+        fprintf(stderr, "\n#  ... found DOUBLE_LOW_9_QUOTATION_MARK");
     }
-    if (box2->c==QUOTATION_MARK // 0x22 = ""
-      && last_double_quotation == DOUBLE_LOW_9_QUOTATION_MARK) {
+    if (box2->c == QUOTATION_MARK && last_double_quotation == DOUBLE_LOW_9_QUOTATION_MARK) {
       last_double_quotation = 0;
       box2->c = box2->tac[0] = DOUBLE_HIGH_REVERSED_9_QUOTATION_MARK;
-      IFV fprintf(stderr,"\n#  change nac=%d %s   %3d to %s %3d at %3d %3d",
-        box2->num_ac, "\"", box2->wac[0],
-        decode(box2->c,ASCII), box2->wac[0], box2->x0, box2->y0);
-    } // box2->c==QUOTATION_MARK // 0x22 = ""
-    
-    if (           box2->c > 0xFF ) continue; // temporary UNICODE fix 1
-    if ((prev) && (prev->c > 0xFF)) continue; // temporary UNICODE fix 2
-    if ((next) && (next->c > 0xFF)) continue; // temporary UNICODE fix 3
-    if (box2->num_ac<2) continue; // no alternatives
-    if (box2->wac[0]==100 && box2->wac[1]<100) continue;
-    if (box2->num_ac && box2->tas[0]) continue; // buggy space_remove 0.42
+      if (job->cfg.verbose)
+        fprintf(stderr, "\n#  change nac=%d %s   %3d to %s %3d at %3d %3d",
+                box2->num_ac, "\"", box2->wac[0],
+                decode(box2->c, ASCII), box2->wac[0], box2->x0, box2->y0);
+    }
 
-    /* check for Il1| which are general difficult to distinguish */
-    /* bbg: not very good. Should add some tests to check if is preceded by '.',
-     spelling, etc */
-    /* ToDo: only correct if not 100% sure (wac[i]<100)
-        and new char is in wat[] */
+    /* Skip Unicode characters and invalid cases */
+    if (box2->c > 0xFF) continue;
+    if (prev && prev->c > 0xFF) continue;
+    if (next && next->c > 0xFF) continue;
+    if (box2->num_ac < 2) continue; /* no alternatives */
+    if (box2->wac[0] == 100 && box2->wac[1] < 100) continue;
+    if (box2->num_ac && box2->tas[0]) continue; /* buggy space_remove */
+
+    /* Correct Il1| based on context */
     if (box2->c && strchr("Il1|", box2->c) && next && prev) {
-//       if( strchr(" \n",prev->c)      // SPC 
-//        && strchr(" \n",next->c) ) box2->c='I'; else // bad idea! I have ...
-      if (wisalpha(next->c) && next->c!='i' && 
-          ( prev->c == '\n' || // unref-pointer pre2 fix 2017-04-25 by Norbert M.
-	   ( prev->c == ' ' && (!pre2 || (pre2 && pre2->c == '.' )) ) ) ) 
-        {  nc+=setc(box2,(wchar_t)'I'); }
-      else if (
-           (   box2->c!='1'             /* lnt => Int, but 1st */
-            && strchr(l_nonvo,next->c)
-            && strchr("\" \n",prev->c))
-          ||  (prev && ((!pre2) || wisupper(pre2->c) || strchr(" \n",pre2->c))
-            && wisupper(prev->c)
-            && box2->num_frame_vectors[0]==4
-            && box2->frame_vector[0][0]==box2->x0
-            && box2->frame_vector[1][0]==box2->x0
-            && box2->frame_vector[2][0]==box2->x1
-            && box2->frame_vector[3][0]==box2->x1
-            ))  // " DI*"
-        /* do not change he'll to he'Il! */
-        { nc+=setc(box2,(wchar_t)'I'); }  // set box2->c to 'I' if 'I' is in the ac-list
-      else if (strchr(l_vowel,next->c)) /* unusual? Ii Ie Ia Iy Iu */   
-          /*  && strchr("KkBbFfgGpP",prev->c)) */ /* kle Kla Kli */
-          {  nc+=setc(box2,(wchar_t)'l'); }
-      else if (wisupper(next->c)  // ToDo: check 6 neighbours for upper+spaces
-            && !strchr("O0I123456789",next->c)
-            && !strchr("O0I123456789",prev->c)) /* avoid lO => IO (10) */
-	{  nc+=setc(box2,(wchar_t)'I'); }
+      if (wisalpha(next->c) && next->c != 'i' &&
+          (prev->c == '\n' || (prev->c == ' ' && (!pre2 || (pre2 && pre2->c == '.')))))
+        nc += setc(box2, (wchar_t)'I');
+      else if ((box2->c != '1' && strchr(l_nonvo, next->c) && strchr("\" \n", prev->c)) ||
+               (prev && ((!pre2) || wisupper(pre2->c) || strchr(" \n", pre2->c)) &&
+                wisupper(prev->c) && box2->num_frame_vectors[0] == 4 &&
+                box2->frame_vector[0][0] == box2->x0 && box2->frame_vector[1][0] == box2->x0 &&
+                box2->frame_vector[2][0] == box2->x1 && box2->frame_vector[3][0] == box2->x1))
+        nc += setc(box2, (wchar_t)'I');
+      else if (strchr(l_vowel, next->c))
+        nc += setc(box2, (wchar_t)'l');
+      else if (wisupper(next->c) && !strchr("O0I123456789", next->c) &&
+               !strchr("O0I123456789", prev->c))
+        nc += setc(box2, (wchar_t)'I');
       else if (prev && wislower(prev->c))
-	{  nc+=setc(box2,(wchar_t)'l'); }
-      else if (wisdigit(prev->c)
-            || wisdigit(next->c)
-            || (next && strchr(":-",next->c) && pre2 && pre2->c==next->c
-             && prev && strchr("0123456789ABCDabcd",prev->c)) // hex 2010-10
-            || (next->c=='O' && !wisalpha(prev->c)))  /* lO => 10 */
-	{  nc+=setc(box2,(wchar_t)'1'); }
+        nc += setc(box2, (wchar_t)'l');
+      else if (wisdigit(prev->c) || wisdigit(next->c) ||
+               (next && strchr(":-", next->c) && pre2 && pre2->c == next->c &&
+                prev && strchr("0123456789ABCDabcd", prev->c)) ||
+               (next->c == 'O' && !wisalpha(prev->c)))
+        nc += setc(box2, (wchar_t)'1');
     }
-    // JS-2010-09 (ToDo: only if I is an alternate char!?)
-    if (strchr("Il|", box2->c) && next && !prev) { // first char?
-      if (wisalpha(next->c) && next->c!='i' && !strchr(l_vowel,next->c))
-	 {  nc+=setc(box2,(wchar_t)'I'); }
-      else if (wisupper(next->c)
-            && !strchr("O0I123456789",next->c)) /* avoid lO => IO (10) */
-	{  nc+=setc(box2,(wchar_t)'I'); }
+
+    /* Correct Il| at start of line */
+    if (strchr("Il|", box2->c) && next && !prev) {
+      if (wisalpha(next->c) && next->c != 'i' && !strchr(l_vowel, next->c))
+        nc += setc(box2, (wchar_t)'I');
+      else if (wisupper(next->c) && !strchr("O0I123456789", next->c))
+        nc += setc(box2, (wchar_t)'I');
     }
-    
-    // ToDo: count width of all "0O" to decide between wide and narrow O's
-    // ToDo: set dbg-stack to context correction + setc output corrections
-    // FreeMono-Regular 0 is slightly higher and less width than O, rnd-chars
-    //    0 is 30x51 (m3-m0=50 H=Xx46)
-    //    O is 40x48 
-    /* check for O0 */
-    else if (strchr("O0", box2->c)) {
-      int i0, have_hexhi=0, have_hexlo=0, have_digits=0, have_alpha=0,
-              have_upper=0;
-      wchar_t c0; /* test char loop over pre2 ... next2 */ 
-      for (i0=0; i0<5; i0++) {/* ToDo: take into account 100% chars only? */
-        c0='\0';
-        if (i0==4 && pre4) c0=pre4->c;
-        if (i0==0 && pre3) c0=pre3->c;
-        if (i0==1 && pre2) c0=pre2->c;
-        if (i0==2 && prev) c0=prev->c;
-        if (i0==3 && next) c0=next->c; /* ToDo17 nex2 for 0.7 */
-        if (c0=='\0') continue;
-        if (strchr("abcdef",c0)) have_hexlo++; /* 2017-07 */
-        if (strchr("ABCDEF",c0)) have_hexhi++; /* 2017-07 */
-        if (strchr("123456789",c0)) have_digits++;
-        if (strchr("ghijklmnopqrstuvwxyz",c0)) have_alpha++;
-        if (strchr("GHIJKLMNPQRSTUVWXYZ",c0)) have_upper++;
+
+    /* Correct O0 based on width and context */
+    if (strchr("O0", box2->c)) {
+      int i0, have_hexhi = 0, have_hexlo = 0, have_digits = 0, have_alpha = 0, have_upper = 0;
+      wchar_t c0;
+      for (i0 = 0; i0 < 5; i0++) {
+        c0 = '\0';
+        if (i0 == 4 && pre4) c0 = pre4->c;
+        if (i0 == 0 && pre3) c0 = pre3->c;
+        if (i0 == 1 && pre2) c0 = pre2->c;
+        if (i0 == 2 && prev) c0 = prev->c;
+        if (i0 == 3 && next) c0 = next->c;
+        if (c0 == '\0') continue;
+        if (strchr("abcdef", c0)) have_hexlo++;
+        if (strchr("ABCDEF", c0)) have_hexhi++;
+        if (strchr("123456789", c0)) have_digits++;
+        if (strchr("ghijklmnopqrstuvwxyz", c0)) have_alpha++;
+        if (strchr("GHIJKLMNPQRSTUVWXYZ", c0)) have_upper++;
       }
       if ((have_hexlo && have_hexhi) || have_alpha || have_upper) {
-        have_upper+=have_hexhi; have_alpha+=have_hexlo;
-        have_hexlo=0; have_hexhi=0; } // have_hex*=0 if isalpha 
-      // wchar_t c_ask= 'O'; // detect changes?
-      if (O0_slashed_zeros==0 && O0_num>1  // 2018-09 rnd80.tt
-         && O0_maxw > O0_minw + (box2->x1 - box2->x0 + 1)/32 + 1
-         && (box2->x1 - box2->x0 + 1) > (O0_maxw+O0_minw)/2
-         && dy >= box2->m3 - box2->m2) {
-        nc+=setc(box2,(wchar_t)'O'); // big width
-        IFV fprintf(stderr," DBG%04d %d,%d: O0 to O", __LINE__,
-          box2->x0,box2->y0);
-      } else
-      if (O0_slashed_zeros==0 && O0_num>1  // 2018-09 rnd80.tt
-         && O0_maxw > O0_minw + (box2->x1 - box2->x0 + 1)/32 + 1
-         && (box2->x1 - box2->x0 + 1) < (O0_maxw+O0_minw+1)/2
-         && dy >= box2->m3 - box2->m2) {
-        nc+=setc(box2,(wchar_t)'0'); // small width 
-        IFV fprintf(stderr," DBG%04d %d,%d: O0 to 0", __LINE__,
-          box2->x0,box2->y0);
-      } else
-      if (((!next) || !strchr(" .,", next->c))
-      && ((((!prev) ||  wisspace(prev->c)) // first letter?
-           && have_alpha /* words vs units? Orig vs. 0days */
-           && (!have_digits))
-       ||    (have_upper && (!have_digits)) )) // UPWORD?
-      { nc+=setc(box2,(wchar_t)'O');
-        IFV fprintf(stderr," DBG%04d %d,%d: O0 to O", __LINE__,
-          box2->x0,box2->y0);}
-      // ! "  Otto"
-      // wchar_t c_ask= '0'; // + replace else if !!!
-      else if ((have_digits || have_hexlo /* || have_hexhi */ /* C0DE39 */
-             || (prev && strchr(" -+", prev->c) && 
-                 next && strchr(" .,", next->c)))
-            && (!have_upper) /*&& (!have_hexhi)*/) /* 2017-07 */
-	{ nc+=setc(box2,(wchar_t)'0');
-          IFV fprintf(stderr," DBG%04d %d,%d: O0 to 0", __LINE__,
-            box2->x0,box2->y0);}
-    } // O0
+        have_upper += have_hexhi; have_alpha += have_hexlo;
+        have_hexlo = 0; have_hexhi = 0;
+      }
+      if (O0_slashed_zeros == 0 && O0_num > 1 &&
+          O0_maxw > O0_minw + (box2->x1 - box2->x0 + 1) / 32 + 1 &&
+          (box2->x1 - box2->x0 + 1) > (O0_maxw + O0_minw) / 2 &&
+          dy >= box2->m3 - box2->m2) {
+        nc += setc(box2, (wchar_t)'O');
+        if (job->cfg.verbose)
+          fprintf(stderr, " DBG%04d %d,%d: O0 to O", __LINE__, box2->x0, box2->y0);
+      } else if (O0_slashed_zeros == 0 && O0_num > 1 &&
+                 O0_maxw > O0_minw + (box2->x1 - box2->x0 + 1) / 32 + 1 &&
+                 (box2->x1 - box2->x0 + 1) < (O0_maxw + O0_minw + 1) / 2 &&
+                 dy >= box2->m3 - box2->m2) {
+        nc += setc(box2, (wchar_t)'0');
+        if (job->cfg.verbose)
+          fprintf(stderr, " DBG%04d %d,%d: O0 to 0", __LINE__, box2->x0, box2->y0);
+      } else if (((!next) || !strchr(" .,", next->c)) &&
+                 ((((!prev) || wisspace(prev->c)) && have_alpha && (!have_digits)) ||
+                  (have_upper && (!have_digits)))) {
+        nc += setc(box2, (wchar_t)'O');
+        if (job->cfg.verbose)
+          fprintf(stderr, " DBG%04d %d,%d: O0 to O", __LINE__, box2->x0, box2->y0);
+      } else if ((have_digits || have_hexlo ||
+                  (prev && strchr(" -+", prev->c) && next && strchr(" .,", next->c))) &&
+                 (!have_upper)) {
+        nc += setc(box2, (wchar_t)'0');
+        if (job->cfg.verbose)
+          fprintf(stderr, " DBG%04d %d,%d: O0 to 0", __LINE__, box2->x0, box2->y0);
+      }
+    }
 
-    /* check for 5S */
-    else if (strchr("5S", box2->c) && next && prev) {
-      if (wisspace(prev->c) && wisalpha(next->c)) /* initial letter */
-	{ nc+=setc(box2,(wchar_t)'S'); }
-      else if (wisalpha(prev->c) && wisalpha(next->c)
-                                 && wisupper(next->c)) /* word in upper case */
-	{ nc+=setc(box2,(wchar_t)'S'); }
+    /* Correct 5S based on context */
+    if (strchr("5S", box2->c) && next && prev) {
+      if (wisspace(prev->c) && wisalpha(next->c))
+        nc += setc(box2, (wchar_t)'S');
+      else if (wisalpha(prev->c) && wisalpha(next->c) && wisupper(next->c))
+        nc += setc(box2, (wchar_t)'S');
       else if (wisdigit(prev->c) || wisdigit(next->c))
-	{ nc+=setc(box2,(wchar_t)'5'); }
+        nc += setc(box2, (wchar_t)'5');
     }
 
-    /* was a space not found? xXx => x Xx ??? */
+    /* Insert space in xXx pattern */
     if (wisupper(box2->c) && next && prev) {
-      if (wislower(prev->c) && wislower(next->c)
-	  && 2 * (box2->x0 - prev->x1) > 3 * (next->x0 - box2->x1)) {
-	struct box *box3 = malloc_box((struct box *) NULL);
-	box3->x0 = prev->x1 + 2;
-	box3->x1 = box2->x0 - 2;
-	box3->y0 = box2->y0;
-	box3->y1 = box2->y1;
-	box3->x = box2->x0 - 1;
-	box3->y = box2->y0;
-	box3->dots = 0;
-	box3->num_boxes = 0;
-	box3->num_subboxes = 0;
-	box3->c = ' ';
-	box3->modifier = 0;
-	setac(box3,' ',99); /* ToDo: weight depends from distance */
-	box3->num = -1;
-	box3->line = prev->line;
-	box3->m1 = box3->m2 = box3->m3 = box3->m4 = 0;
-	box3->p = &(job->src.p);
-	list_ins(&(job->res.boxlist), box2, box3);
+      if (wislower(prev->c) && wislower(next->c) &&
+          2 * (box2->x0 - prev->x1) > 3 * (next->x0 - box2->x1)) {
+        box3 = malloc_box(NULL);
+        if (!box3) continue; /* allocation failure, skip insertion */
+        box3->x0 = prev->x1 + 2;
+        box3->x1 = box2->x0 - 2;
+        box3->y0 = box2->y0;
+        box3->y1 = box2->y1;
+        box3->x = box2->x0 - 1;
+        box3->y = box2->y0;
+        box3->dots = 0;
+        box3->num_boxes = 0;
+        box3->num_subboxes = 0;
+        box3->c = ' ';
+        box3->modifier = 0;
+        setac(box3, ' ', 99);
+        box3->num = -1;
+        box3->line = prev->line;
+        box3->m1 = box3->m2 = box3->m3 = box3->m4 = 0;
+        box3->p = &(job->src.p);
+        list_ins(&(job->res.boxlist), box2, box3);
       }
     }
-    
-    /* a space before punctuation? but not " ./file" */
-    if ( prev && next)
-    if (prev->c == ' ' && strchr(" \n"    , next->c)
-                       && strchr(".,;:!?)", box2->c))
-      if (prev->x1 - prev->x0 < 2 * job->res.avX) {	// carefully on tables
-	box3 = prev;
-	if ( !list_del(&(job->res.boxlist), box3) ) free_box(box3);	
-        prev = (struct box *)list_get_cur_prev(&(job->res.boxlist));
-        ns++;
-      }
 
-    /* \'\' to \" */
-    if ( prev )
-    if ( (prev->c == '`' || prev->c == '\'')
-      && (box2->c == '`' || box2->c == '\'') )
-      if (prev->x1 - box2->x0 < job->res.avX) { // carefully on tables
-        box2->c='\"';
-	box3 = prev;
-	list_del(&(job->res.boxlist), box3);
-	free_box(box3);
+    /* Remove redundant space before punctuation */
+    if (prev && next) {
+      if (prev->c == ' ' && strchr(" \n", next->c) && strchr(".,;:!?)", box2->c)) {
+        if (prev->x1 - prev->x0 < 2 * job->res.avX) {
+          box3 = prev;
+          prev = (struct box *)list_get_cur_prev(&(job->res.boxlist));
+          if (box3 && !list_del(&(job->res.boxlist), box3)) {
+            free_box(box3); /* free if deletion fails */
+          }
+          ns++;
+        }
       }
+    }
+
+    /* Convert '' to " with safety checks */
+    if (prev) {
+      if ((prev->c == '`' || prev->c == '\'') && (box2->c == '`' || box2->c == '\'')) {
+        if (prev->x1 - box2->x0 < job->res.avX) {
+          box2->c = '\"';
+          box3 = prev;
+          prev = (struct box *)list_get_cur_prev(&(job->res.boxlist));
+          if (box3 && !list_del(&(job->res.boxlist), box3)) {
+            free_box(box3); /* free if deletion fails (CVE-2021-33480 fix) */
+          }
+        }
+      }
+    }
+    /* Update predecessors for next iteration */
+    prev = box2;
   } end_for_each(&(job->res.boxlist));
+
+  /* Verbose mode: print correction stats */
   if (job->cfg.verbose)
     fprintf(stderr, " num_corrected= %d removed_spaces= %d\n", nc, ns);
   return 0;
 }
-
 
 /* ---- insert spaces ----
  *  depends strongly from the outcome of measure_pitch()
