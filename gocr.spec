@@ -1,5 +1,5 @@
 %define name	gocr
-%define version	0.52
+%define version	0.54
 %define release	1
 
 %define prefix		%{_prefix}

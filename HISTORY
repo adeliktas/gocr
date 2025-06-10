@@ -1,5 +1,7 @@
 History: (Changes,ChangeLog)
 
+ 0.54 Jun10
+   2025-06 fixes for CVE-2021-33479, CVE-2021-33480, CVE-2021-33481 from bugs.gentoo.org/824290
  0.52 Sep18
    2018-10 fix endianess of 16bit-pnm (NetPBM: most significant byte first)
            it works partly with (old) wrong order, but noisy contour

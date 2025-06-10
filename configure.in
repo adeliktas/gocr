@@ -1,7 +1,7 @@
 # see /usr/share/info/standards.info,autoconf.info (autoconf 2.57)
 dnl Process this file with autoconf to produce a configure script.
 dnl obsolete: AC_INIT(src/pgm2asc.c)
-AC_INIT(gocr,0.52,,)
+AC_INIT(gocr,0.54,,)
 AC_PREREQ(2.50)
 AC_CONFIG_HEADERS([include/config.h])
 dnl AC_EXEEXT is obsolete now

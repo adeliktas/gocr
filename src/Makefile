@@ -89,11 +89,11 @@ $(PROGRAM): $(LIBOBJS) gocr.o
 	$(CC) -o $@ $(LDFLAGS) gocr.o $(LIBOBJS) $(LIBS)
 	# if test -r $(PROGRAM); then cp $@ ../bin; fi
 
-libs: lib$(PGMASCLIB).a lib$(PGMASCLIB).0.52.so
+libs: lib$(PGMASCLIB).a lib$(PGMASCLIB).0.54.so
 
-#lib$(PGMASCLIB).0.52.so: $(LIBOBJS)
+#lib$(PGMASCLIB).0.54.so: $(LIBOBJS)
 #	$(CC) -fPIC -shared -Wl,-h$@ -o $@ $(LIBOBJS)
-lib$(PGMASCLIB).0.52.so: $(LIBOBJS:%.o=%.c) Makefile
+lib$(PGMASCLIB).0.54.so: $(LIBOBJS:%.o=%.c) Makefile
 	# .o must be build with -fPIC too (Aug2010 JS)
 	$(CC) $(CFLAGS) -fPIC -shared -Wl,-h$@ -o $@ $(LIBOBJS:%.o=%.c)
 	-rm -f lib$(PGMASCLIB).so  # set new link
@@ -115,7 +115,7 @@ install: all
 	$(INSTALL) ../bin/gocr.tcl   $(DESTDIR)$(bindir)  # better X11/bin?
 	if test -f lib$(PGMASCLIB).a; then\
 	 $(INSTALL) lib$(PGMASCLIB).a $(DESTDIR)$(libdir);\
-	 $(INSTALL) lib$(PGMASCLIB).0.52.so $(DESTDIR)$(libdir);\
+	 $(INSTALL) lib$(PGMASCLIB).0.54.so $(DESTDIR)$(libdir);\
 	 $(INSTALL) lib$(PGMASCLIB).so $(DESTDIR)$(libdir);\
 	fi
 	# ToDo: not sure that the link will be installed correctly
@@ -126,7 +126,7 @@ uninstall:
 	-rm -f $(DESTDIR)$(bindir)/$(PROGRAM)
 	-rm -f $(DESTDIR)$(bindir)/gocr.tcl
 	-rm -f $(DESTDIR)$(libdir)/lib$(PGMASCLIB).a
-	-rm -f $(DESTDIR)$(libdir)/lib$(PGMASCLIB).0.52.so
+	-rm -f $(DESTDIR)$(libdir)/lib$(PGMASCLIB).0.54.so
 	-rm -f $(DESTDIR)$(libdir)/lib$(PGMASCLIB).so
 	# ToDo: set to old version.so ?
 	#for X in $(INCLUDEFILES); do rm -f $(DESTDIR)$(includedir)/$$X; done
